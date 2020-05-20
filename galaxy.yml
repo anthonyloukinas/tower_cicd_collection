@@ -1,0 +1,11 @@
+# https://docs.ansible.com/ansible/latest/dev_guide/collections_galaxy_meta.html
+
+namespace: "anthonyloukinas"
+name: "tower_cicd"
+version: "1.0.0"
+readme: "README.md"
+authors:
+    - "Anthony Loukinas <anthony.loukinas@redhat.com>"
+license:
+    - "MIT"
+repository: ""
