@@ -31,6 +31,8 @@
 from __future__ import (absolute_import, division, print_function)
 __metaclass__ = type
 
+import json
+
 from ansible.module_utils.urls import Request, ConnectionError
 from ansible.module_utils.six.moves.urllib.error import HTTPError, URLError
 
@@ -80,3 +82,16 @@ class TowerRestClient():
 
     def delete(self, path):
         return self._request("DELETE", path)
+
+    def _export_project(self, name):
+        pass
+
+    def export_asset(self, asset_type, asset_name):
+
+        if asset_type == "project":
+            
+            self._export_project(asset_name)
+
+        else:
+            # raise error
+            pass
