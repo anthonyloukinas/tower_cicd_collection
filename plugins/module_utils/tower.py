@@ -36,7 +36,48 @@ import json
 from ansible.module_utils.urls import Request, ConnectionError
 from ansible.module_utils.six.moves.urllib.error import HTTPError, URLError
 
-class TowerRestClient():
+PROJECT_FIELDS_TO_REMOVE = [
+    'id',
+    'url',
+    'related',
+    'summary_fields',
+    'created',
+    'modified',
+    'local_path',
+    'credential', # needs replacing
+    'scm_revision',
+    'last_job_run',
+    'last_job_failed',
+    'next_job_run',
+    'status',
+    'organization', # needs replacing
+    'custom_virtualenv',
+    'last_update_failed',
+    'last_updated'
+]
+
+
+class Error(Exception):
+    pass
+
+
+class TowerResourceNotFound(Error):
+    def __init__(self, message, response=None):
+        self.message = message
+        self.response = response
+
+
+class TowerConnectionError(Error):
+    def __init__(self, message, response=None):
+        self.message = message
+        self.response = response
+
+class TowerAssetExists(Error):
+    def __init__(self, message, response=None):
+        self.message = message
+        self.response = response
+
+class TowerRestClient:
 
     def __init__(self, address, username, password, validate_certs=False, force_basic_auth=True):
         self._address = address
@@ -83,15 +124,85 @@ class TowerRestClient():
     def delete(self, path):
         return self._request("DELETE", path)
 
-    def _export_project(self, name):
+    def asset_exists(self, asset_name, asset_type):
+        _status, _headers, _data = self.get('/api/v2/{}/?name={}'.format(asset_type, asset_name))
+
+        if _data.get('count') != 0:
+            return _data
+        else:
+            return None
+
+    # EXPORTS
+    def _export_project(self, name, resolve_dependencies):
+        _status, _headers, _data = self.get('/api/v2/projects/?name={}'.format(name))
+
+        # Check HTTP status code for request
+        if _status != 200:
+            raise TowerConnectionError("Ansible expected an HTTP response code of {} but got {}".format(200, _status))
+        else:
+            # Check if we found an asset matching provided name
+            if _data["count"] == 0:
+                raise TowerResourceNotFound("Project named {} was not found".format(name))
+            else:
+                # Store local copy of project json
+                project = _data["results"][0]
+                
+                # Remove fields that cannot be imported
+                for field in PROJECT_FIELDS_TO_REMOVE:
+                    del(project[field])
+
+                return project
+
+    def _export_job_template(self, name, resolve_dependencies):
         pass
 
-    def export_asset(self, asset_type, asset_name):
+    def _export_workflow_job_template(self, name, resolve_dependencies):
+        pass
+
+    def export_asset(self, asset_type, asset_name, resolve_dependencies):
 
         if asset_type == "project":
-            
-            self._export_project(asset_name)
+            return self._export_project(asset_name, resolve_dependencies)
 
+        elif asset_type == "job_template":
+            return self._export_job_template(asset_name, resolve_dependencies)
+
+        elif asset_type == "workflow_job_template":
+            return self._export_workflow_job_template(asset_name, resolve_dependencies)
+
+    # IMPORTS
+    def _import_project(self, project, update_asset):
+
+        result = dict(
+            imported=False,
+            request=None
+        )
+
+        success_codes = [200, 201, 202, 203]
+
+        asset_exists = self.asset_exists(project["name"], 'projects')
+
+        if asset_exists:
+            asset_id = asset_exists["results"][0]["id"]
+            if update_asset:
+                _status, _headers, _data = self.patch('/api/v2/projects/{}/'.format(asset_id), project)
+            else:
+                # raise error that asset already exists, try using update_asset if you want to override it
+                raise TowerAssetExists(
+                    message="An asset named '{}' already exists. If you'd like to overwrite this assets variables, set 'update_asset: true' in your playbook".format(project["name"])
+                )
         else:
-            # raise error
-            pass
+            _status, _headers, _data = self.post('/api/v2/projects/', project)
+
+        result["request"] = _status, _headers, _data
+
+        if _status in success_codes:  # Successful import
+            result["imported"] = True
+            return result
+        else:
+            return result  # return error here
+
+    def import_asset(self, asset, update_asset):
+
+        if asset["type"] == "project":
+            return self._import_project(asset, update_asset)
